@@ -27,19 +27,19 @@
 extern __u32 LINUX_KERNEL_VERSION __kconfig;
 
 struct flow_key {
-    uint8_t protocol;
     uint32_t src_ip;
     uint32_t dst_ip;
     uint16_t src_port;
     uint16_t dst_port;
+    uint8_t protocol;
 };
 
-BPF_CUCKOO_HASH(test_map, struct flow_key, uint64_t, 256)
+BPF_CUCKOO_HASH(test_map, struct flow_key, uint32_t, 512)
 
 static bool __always_inline test_case1(struct test_map_cuckoo_hash_map *map) {
     struct flow_key flow1 = {
         .protocol = 17, .src_ip = 0x10101010, .dst_ip = 0x10101011, .src_port = 1, .dst_port = 2};
-    uint64_t *val = test_map_cuckoo_lookup(map, &flow1);
+    test_map_cuckoo_val_t *val = test_map_cuckoo_lookup(map, &flow1);
     if (val == NULL)
         return true;
 
@@ -49,7 +49,7 @@ static bool __always_inline test_case1(struct test_map_cuckoo_hash_map *map) {
 static bool __always_inline test_case2(struct test_map_cuckoo_hash_map *map) {
     struct flow_key flow1 = {
         .protocol = 17, .src_ip = 0x10101010, .dst_ip = 0x10101011, .src_port = 1, .dst_port = 2};
-    uint64_t val = 64;
+    test_map_cuckoo_val_t val = 64;
     if (test_map_cuckoo_insert(map, &flow1, &val)) {
         return true;
     }
@@ -59,10 +59,10 @@ static bool __always_inline test_case2(struct test_map_cuckoo_hash_map *map) {
 static bool __always_inline test_case3(struct test_map_cuckoo_hash_map *map) {
     struct flow_key flow1 = {
         .protocol = 17, .src_ip = 0x10101010, .dst_ip = 0x10101011, .src_port = 1, .dst_port = 2};
-    uint64_t val = 64;
+    test_map_cuckoo_val_t val = 64;
     test_map_cuckoo_insert(map, &flow1, &val);
 
-    uint64_t *ret_val = test_map_cuckoo_lookup(map, &flow1);
+    test_map_cuckoo_val_t *ret_val = test_map_cuckoo_lookup(map, &flow1);
     if (ret_val) {
         bpf_printk("ret_val: %d", *ret_val);
     }
@@ -75,10 +75,10 @@ static bool __always_inline test_case3(struct test_map_cuckoo_hash_map *map) {
 static bool __always_inline test_case4(struct test_map_cuckoo_hash_map *map) {
     struct flow_key flow1 = {
         .protocol = 17, .src_ip = 0x10101010, .dst_ip = 0x10101011, .src_port = 1, .dst_port = 2};
-    uint64_t val = 64;
+    test_map_cuckoo_val_t val = 64;
     test_map_cuckoo_insert(map, &flow1, &val);
 
-    uint64_t *ret_val = test_map_cuckoo_lookup(map, &flow1);
+    test_map_cuckoo_val_t *ret_val = test_map_cuckoo_lookup(map, &flow1);
     if (!ret_val || *ret_val != 64)
         return false;
 
@@ -93,32 +93,32 @@ static bool __always_inline test_case4(struct test_map_cuckoo_hash_map *map) {
 
 static bool __always_inline test_case5(struct test_map_cuckoo_hash_map *map) {
     struct flow_key flow3 = {
-        .protocol = 17, .src_ip = 0x10101010, .dst_ip = 0x10101013, .src_port = 2, .dst_port = 1};
+        .src_ip = 0x10101010, .dst_ip = 0x10101013, .src_port = 2, .dst_port = 1, .protocol = 17};
     struct flow_key flow4 = {
-        .protocol = 30, .src_ip = 0x10101010, .dst_ip = 0x10101014, .src_port = 10, .dst_port = 10};
+        .src_ip = 0x10101010, .dst_ip = 0x10101014, .src_port = 10, .dst_port = 10, .protocol = 30};
     struct flow_key flow5 = {
-        .protocol = 30, .src_ip = 0x10101010, .dst_ip = 0x10101014, .src_port = 1, .dst_port = 22};
+        .src_ip = 0x10101010, .dst_ip = 0x10101014, .src_port = 1, .dst_port = 22, .protocol = 30};
     struct flow_key flow6 = {
-        .protocol = 50, .src_ip = 0x10101010, .dst_ip = 0x10101014, .src_port = 15, .dst_port = 10};
+        .src_ip = 0x10101010, .dst_ip = 0x10101014, .src_port = 15, .dst_port = 10, .protocol = 50};
     struct flow_key flow7 = {
-        .protocol = 70, .src_ip = 0x10101010, .dst_ip = 0x10101014, .src_port = 10, .dst_port = 20};
+        .src_ip = 0x10101010, .dst_ip = 0x10101014, .src_port = 10, .dst_port = 20, .protocol = 70};
     struct flow_key flow8 = {
-        .protocol = 50, .src_ip = 0x10101010, .dst_ip = 0x10101014, .src_port = 10, .dst_port = 7};
+        .src_ip = 0x10101010, .dst_ip = 0x10101014, .src_port = 10, .dst_port = 7, .protocol = 50};
     struct flow_key flow9 = {
-        .protocol = 100, .src_ip = 0x10101010, .dst_ip = 0x10101014, .src_port = 2, .dst_port = 3};
+        .src_ip = 0x10101010, .dst_ip = 0x10101014, .src_port = 2, .dst_port = 3, .protocol = 100};
     struct flow_key flow10 = {
-        .protocol = 1, .src_ip = 0x10101010, .dst_ip = 0x10101014, .src_port = 1, .dst_port = 1};
+        .src_ip = 0x10101010, .dst_ip = 0x10101014, .src_port = 1, .dst_port = 1, .protocol = 1};
     struct flow_key flow11 = {
-        .protocol = 30, .src_ip = 0x10101010, .dst_ip = 0x10101014, .src_port = 3, .dst_port = 3};
+        .src_ip = 0x10101010, .dst_ip = 0x10101014, .src_port = 3, .dst_port = 3, .protocol = 30};
     struct flow_key flow12 = {
-        .protocol = 30, .src_ip = 0x10101010, .dst_ip = 0x10101014, .src_port = 4, .dst_port = 5};
+        .src_ip = 0x10101010, .dst_ip = 0x10101014, .src_port = 4, .dst_port = 5, .protocol = 30};
     struct flow_key flow_array[] = {flow3, flow4, flow5,  flow6,  flow7,
                                     flow8, flow9, flow10, flow11, flow12};
 
     for (int i = 0; i < (sizeof(flow_array) / sizeof(struct flow_key)); i++) {
-        uint64_t value = flow_array[i].protocol + flow_array[i].src_port + flow_array[i].dst_port;
+        test_map_cuckoo_val_t value = flow_array[i].protocol + flow_array[i].src_port + flow_array[i].dst_port;
         test_map_cuckoo_insert(map, &(flow_array[i]), &value);
-        uint64_t *map_val = test_map_cuckoo_lookup(map, &(flow_array[i]));
+        test_map_cuckoo_val_t *map_val = test_map_cuckoo_lookup(map, &(flow_array[i]));
         if (!map_val || *map_val != value) {
             return false;
         }
@@ -151,7 +151,7 @@ static bool __always_inline test_case6(struct test_map_cuckoo_hash_map *map) {
                                     flow8, flow9, flow10, flow11, flow12};
 
     for (int i = 0; i < (sizeof(flow_array) / sizeof(struct flow_key)); i++) {
-        uint64_t value = flow_array[i].protocol + flow_array[i].src_port + flow_array[i].dst_port;
+        test_map_cuckoo_val_t value = flow_array[i].protocol + flow_array[i].src_port + flow_array[i].dst_port;
         if (!test_map_cuckoo_insert(map, &(flow_array[i]), &value)) {
             return false;
         }
@@ -160,7 +160,7 @@ static bool __always_inline test_case6(struct test_map_cuckoo_hash_map *map) {
     struct flow_key flow13 = {
         .protocol = 100, .src_ip = 0x10101010, .dst_ip = 0x10101014, .src_port = 1, .dst_port = 2};
     /* look up element that does not exist */
-    uint64_t *map_val = test_map_cuckoo_lookup(map, &flow13);
+    test_map_cuckoo_val_t *map_val = test_map_cuckoo_lookup(map, &flow13);
     if (map_val == NULL) {
         return true;
     }

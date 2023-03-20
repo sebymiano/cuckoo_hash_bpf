@@ -119,7 +119,7 @@ $(APPS): %: $(OUTPUT)/%.o $(LIBBPF_OBJ) | $(OUTPUT)
 test:
 	$(call msg,TEST,$@)
 	$(Q)$(MAKE) clean
-	$(Q)$(MAKE) $(APPS)
+	$(Q)$(MAKE) $(APPS) -j4
 	sudo $(TEST_BIN) -v | $(LIBGREATEST_SRC)/contrib/greenest
 
 format:
