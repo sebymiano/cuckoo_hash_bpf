@@ -35,20 +35,19 @@
 #define TEST_MULTIPLE_INSERT 5
 #define TEST_LOOKUP_AFTER_INSERT 6
 
-
 struct ipv4_packet {
-	struct ethhdr eth;
-	struct iphdr iph;
-	struct tcphdr tcp;
+    struct ethhdr eth;
+    struct iphdr iph;
+    struct tcphdr tcp;
 } __packed;
 
 struct ipv4_packet pkt_v4 = {
-	.eth.h_proto = __bpf_constant_htons(ETH_P_IP),
-	.iph.ihl = 5,
-	.iph.protocol = IPPROTO_TCP,
-	.iph.tot_len = __bpf_constant_htons(MAGIC_BYTES),
-	.tcp.urg_ptr = 123,
-	.tcp.doff = 5,
+    .eth.h_proto = __bpf_constant_htons(ETH_P_IP),
+    .iph.ihl = 5,
+    .iph.protocol = IPPROTO_TCP,
+    .iph.tot_len = __bpf_constant_htons(MAGIC_BYTES),
+    .tcp.urg_ptr = 123,
+    .tcp.doff = 5,
 };
 
 // static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args) {
@@ -84,20 +83,16 @@ int load_and_run_program(unsigned int test_case) {
 
     int prog_fd = bpf_program__fd(skel->progs.xdp_cuckoo_test_prog);
 
-    struct xdp_md ctx_in = { 
+    struct xdp_md ctx_in = {
         .data = sizeof(__u32),
         .data_end = sizeof(pkt_v4) + sizeof(__u32),
         .ingress_ifindex = IFINDEX_LO,
     };
 
-    LIBBPF_OPTS(bpf_test_run_opts, topts,
-		.data_in = &pkt_v4,
-		.data_size_in = sizeof(pkt_v4) + sizeof(__u32),
-		.data_out = buf,
-		.data_size_out = sizeof(buf) + sizeof(__u32),
-        .ctx_in = &ctx_in,
-        .ctx_size_in = sizeof(ctx_in)
-	);
+    LIBBPF_OPTS(bpf_test_run_opts, topts, .data_in = &pkt_v4,
+                .data_size_in = sizeof(pkt_v4) + sizeof(__u32), .data_out = buf,
+                .data_size_out = sizeof(buf) + sizeof(__u32), .ctx_in = &ctx_in,
+                .ctx_size_in = sizeof(ctx_in));
 
     err = bpf_prog_test_run_opts(prog_fd, &topts);
     if (err) {
@@ -117,7 +112,7 @@ TEST test1_check_lookup(void) {
     int retval_expect = XDP_PASS;
     int ret = load_and_run_program(TEST_LOOKUP);
 
-    //Assert that EXPECTED >= ACTUAL
+    // Assert that EXPECTED >= ACTUAL
     ASSERT_GTEm("Failed to load and run BPF program", ret, 0);
 
     ASSERT_EQ_FMT(retval_expect, ret, "%d");
@@ -129,7 +124,7 @@ TEST test2_insertion(void) {
     int retval_expect = XDP_PASS;
     int ret = load_and_run_program(TEST_INSERTION);
 
-    //Assert that EXPECTED >= ACTUAL
+    // Assert that EXPECTED >= ACTUAL
     ASSERT_GTEm("Failed to load and run BPF program", ret, 0);
 
     ASSERT_EQ_FMT(retval_expect, ret, "%d");
@@ -141,7 +136,7 @@ TEST test3_insert_and_lookup(void) {
     int retval_expect = XDP_PASS;
     int ret = load_and_run_program(TEST_INSERT_AND_LOOKUP);
 
-    //Assert that EXPECTED >= ACTUAL
+    // Assert that EXPECTED >= ACTUAL
     ASSERT_GTEm("Failed to load and run BPF program", ret, 0);
 
     ASSERT_EQ_FMT(retval_expect, ret, "%d");
@@ -153,7 +148,7 @@ TEST test4_insert_delete_lookup(void) {
     int retval_expect = XDP_PASS;
     int ret = load_and_run_program(TEST_INSERT_DELETE_LOOKUP);
 
-    //Assert that EXPECTED >= ACTUAL
+    // Assert that EXPECTED >= ACTUAL
     ASSERT_GTEm("Failed to load and run BPF program", ret, 0);
 
     ASSERT_EQ_FMT(retval_expect, ret, "%d");
@@ -165,7 +160,7 @@ TEST test5_multiple_insert(void) {
     int retval_expect = XDP_PASS;
     int ret = load_and_run_program(TEST_MULTIPLE_INSERT);
 
-    //Assert that EXPECTED >= ACTUAL
+    // Assert that EXPECTED >= ACTUAL
     ASSERT_GTEm("Failed to load and run BPF program", ret, 0);
 
     ASSERT_EQ_FMT(retval_expect, ret, "%d");
@@ -177,7 +172,7 @@ TEST test6_lookup_after_insert(void) {
     int retval_expect = XDP_PASS;
     int ret = load_and_run_program(TEST_LOOKUP_AFTER_INSERT);
 
-    //Assert that EXPECTED >= ACTUAL
+    // Assert that EXPECTED >= ACTUAL
     ASSERT_GTEm("Failed to load and run BPF program", ret, 0);
 
     ASSERT_EQ_FMT(retval_expect, ret, "%d");
@@ -194,11 +189,11 @@ TEST test6_lookup_after_insert(void) {
 GREATEST_MAIN_DEFS();
 
 int main(int argc, char **argv) {
-    GREATEST_MAIN_BEGIN();      /* command-line options, initialization. */
+    GREATEST_MAIN_BEGIN(); /* command-line options, initialization. */
 
     libbpf_set_strict_mode(LIBBPF_STRICT_ALL);
     // libbpf_set_print(libbpf_print_fn);
-  
+
     /* Individual tests can be run directly in main, outside of suites. */
     RUN_TEST(test1_check_lookup);
     RUN_TEST(test2_insertion);
@@ -208,5 +203,5 @@ int main(int argc, char **argv) {
     RUN_TEST(test6_lookup_after_insert);
 
     printf("Program stopped correctly\n");
-    GREATEST_MAIN_END();        /* display results */
+    GREATEST_MAIN_END(); /* display results */
 }

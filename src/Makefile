@@ -116,8 +116,8 @@ $(APPS): %: $(OUTPUT)/%.o $(LIBBPF_OBJ) | $(OUTPUT)
 	$(Q)$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -o $@
 
 format:
-	clang-format -style=file -i *.c *.h
-	clang-format -style=file -i ebpf/*.c ebpf/*.h
+	clang-format -style=file -i *.[ch]
+	clang-format -style=file -i ebpf/*.[ch] ebpf/lib/*.[ch]
 	@grep -n "TODO" *.[ch] || true
 
 # delete failed targets
