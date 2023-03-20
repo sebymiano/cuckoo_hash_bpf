@@ -10,6 +10,7 @@ LIBGREATEST_SRC := $(abspath ../greatest)
 LIBBPF_OBJ := $(abspath $(OUTPUT)/libbpf.a)
 LIBBPF_PKGCONFIG := $(abspath $(OUTPUT)/pkgconfig)
 BPFTOOL_OUTPUT ?= $(abspath $(OUTPUT)/bpftool)
+TEST_BIN := $(abspath ./cuckoo_test)
 BPFTOOL ?= $(BPFTOOL_OUTPUT)/bootstrap/bpftool
 ARCH := $(shell uname -m | sed 's/x86_64/x86/' | sed 's/aarch64/arm64/' | sed 's/ppc64le/powerpc/' | sed 's/mips.*/mips/')
 VMLINUX := ../vmlinux/$(ARCH)/vmlinux.h
@@ -114,6 +115,12 @@ $(OUTPUT)/%.o: %.c $(wildcard %.h) | $(OUTPUT)
 $(APPS): %: $(OUTPUT)/%.o $(LIBBPF_OBJ) | $(OUTPUT)
 	$(call msg,BINARY,$@)
 	$(Q)$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -o $@
+
+test:
+	$(call msg,TEST,$@)
+	$(Q)$(MAKE) clean
+	$(Q)$(MAKE) $(APPS)
+	sudo $(TEST_BIN) -v | $(LIBGREATEST_SRC)/contrib/greenest
 
 format:
 	clang-format -style=file -i *.[ch]
