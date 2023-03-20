@@ -1,0 +1,6 @@
+---
+SortIncludes: 'false'
+IndentWidth: '4'
+AllowShortFunctionsOnASingleLine: Empty
+ColumnLimit: 100
+...
