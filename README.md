@@ -3,7 +3,7 @@ Simple implementation of a cuckoo hash table in eBPF
 
 ## Requirements
 - Linux kernel 5.17 or newer (needed for the `bpf_loop` helper)
-- clang 12 or newer
+- clang 12 or newer (tested with Clang 16)
 - libbpf (and its dependencies)
 - bpftool (and its dependencies)
 

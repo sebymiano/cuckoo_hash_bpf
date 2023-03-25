@@ -115,6 +115,9 @@ static bool __always_inline test_case5(struct test_map_cuckoo_hash_map *map) {
     struct flow_key flow_array[] = {flow3, flow4, flow5,  flow6,  flow7,
                                     flow8, flow9, flow10, flow11, flow12};
 
+#if __clang_major__ < 15
+    #pragma unroll
+#endif
     for (int i = 0; i < (sizeof(flow_array) / sizeof(struct flow_key)); i++) {
         test_map_cuckoo_val_t value = flow_array[i].protocol + flow_array[i].src_port + flow_array[i].dst_port;
         test_map_cuckoo_insert(map, &(flow_array[i]), &value);
@@ -150,6 +153,9 @@ static bool __always_inline test_case6(struct test_map_cuckoo_hash_map *map) {
     struct flow_key flow_array[] = {flow3, flow4, flow5,  flow6,  flow7,
                                     flow8, flow9, flow10, flow11, flow12};
 
+#if __clang_major__ < 15
+    #pragma unroll
+#endif
     for (int i = 0; i < (sizeof(flow_array) / sizeof(struct flow_key)); i++) {
         test_map_cuckoo_val_t value = flow_array[i].protocol + flow_array[i].src_port + flow_array[i].dst_port;
         if (!test_map_cuckoo_insert(map, &(flow_array[i]), &value)) {
