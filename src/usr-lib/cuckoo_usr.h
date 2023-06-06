@@ -31,10 +31,14 @@ typedef struct {
 } cuckoo_hashmap_t;
 
 // Function declarations
-LIBCUCKOO_API cuckoo_hashmap_t *cuckoo_table_init(int map_id, size_t key_size, size_t value_size, uint32_t max_entries, cuckoo_error_t *err);
-LIBCUCKOO_API int cuckoo_insert(const cuckoo_hashmap_t *map, const void *key, const void *value, size_t key_size, size_t value_size, cuckoo_error_t *err);
-LIBCUCKOO_API int cuckoo_lookup(const cuckoo_hashmap_t *map, const void *key, size_t key_size, void *value_to_read, cuckoo_error_t *err);
-LIBCUCKOO_API int cuckoo_delete(const cuckoo_hashmap_t *map, const void *key, size_t key_size, cuckoo_error_t *err);
+LIBCUCKOO_API cuckoo_hashmap_t *cuckoo_table_init(int map_id, size_t key_size, size_t value_size,
+                                                  uint32_t max_entries, cuckoo_error_t *err);
+LIBCUCKOO_API int cuckoo_insert(const cuckoo_hashmap_t *map, const void *key, const void *value,
+                                size_t key_size, size_t value_size, cuckoo_error_t *err);
+LIBCUCKOO_API int cuckoo_lookup(const cuckoo_hashmap_t *map, const void *key, size_t key_size,
+                                void *value_to_read, cuckoo_error_t *err);
+LIBCUCKOO_API int cuckoo_delete(const cuckoo_hashmap_t *map, const void *key, size_t key_size,
+                                cuckoo_error_t *err);
 LIBCUCKOO_API void cuckoo_table_destroy(cuckoo_hashmap_t *map);
 
-#endif  // CUCKOO_USR_H
+#endif // CUCKOO_USR_H

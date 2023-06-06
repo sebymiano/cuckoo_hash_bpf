@@ -14,12 +14,17 @@ TEST_BIN := $(abspath ./cuckoo_test)
 BPFTOOL ?= $(BPFTOOL_OUTPUT)/bootstrap/bpftool
 ARCH := $(shell uname -m | sed 's/x86_64/x86/' | sed 's/aarch64/arm64/' | sed 's/ppc64le/powerpc/' | sed 's/mips.*/mips/')
 VMLINUX := ../vmlinux/$(ARCH)/vmlinux.h
+USR_LIB_NAME := libcuckoo
+USR_LIB_SRC := $(abspath ./usr-lib/cuckoo_usr.c)
 # Use our own libbpf API headers and Linux UAPI headers distributed with
 # libbpf to avoid dependency on system-wide headers, which could be missing or
 # outdated
 INCLUDES := -I$(OUTPUT) -I../libbpf/include/uapi -I$(LIBGREATEST_SRC)
 CFLAGS := -g -Wall
 ALL_LDFLAGS := $(LDFLAGS) $(EXTRA_LDFLAGS)
+
+USR_LIB_CFLAGS := -Wall -Werror -fpic
+USR_LIB_INCLUDES := -I$(OUTPUT) -I../libbpf/include/uapi
 
 APPS = cuckoo_test
 
@@ -63,12 +68,13 @@ $(call allow-override,CC,$(CROSS_COMPILE)cc)
 $(call allow-override,LD,$(CROSS_COMPILE)ld)
 
 .PHONY: all
-all: $(APPS)
+all: $(APPS) usr-lib-static usr-lib-shared
 
 .PHONY: clean
 clean:
 	$(call msg,CLEAN)
 	$(Q)rm -rf $(OUTPUT) $(APPS)
+	$(Q)rm -rf $(USR_LIB_NAME).a $(USR_LIB_NAME).so
 
 clean-app:
 	$(call msg,CLEAN-APP)
@@ -116,6 +122,15 @@ $(APPS): %: $(OUTPUT)/%.o $(LIBBPF_OBJ) | $(OUTPUT)
 	$(call msg,BINARY,$@)
 	$(Q)$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -o $@
 
+usr-lib-static: $(OUTPUT) $(LIBBPF_OBJ)
+	$(call msg,USR-LIB-STATIC,$@)
+	$(CC) $(USR_LIB_CFLAGS) $(USR_LIB_INCLUDES) -c $(USR_LIB_SRC) -o $(OUTPUT)/$(USR_LIB_NAME).o
+	ar -rcs $(USR_LIB_NAME).a $(OUTPUT)/$(USR_LIB_NAME).o
+
+usr-lib-shared: $(OUTPUT) $(LIBBPF_OBJ)
+	$(call msg,USR-LIB-SHARED,$@)
+	$(CC) $(USR_LIB_CFLAGS) $(USR_LIB_INCLUDES) -shared $(USR_LIB_SRC) -o $(USR_LIB_NAME).so
+
 test:
 	$(call msg,TEST,$@)
 	$(Q)$(MAKE) clean
@@ -124,6 +139,7 @@ test:
 
 format:
 	clang-format -style=file -i *.[ch]
+	clang-format -style=file -i usr-lib/*.[ch]
 	clang-format -style=file -i ebpf/*.[ch] ebpf/lib/*.[ch]
 	@grep -n "TODO" *.[ch] || true
 
