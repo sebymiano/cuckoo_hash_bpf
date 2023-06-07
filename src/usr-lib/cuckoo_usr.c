@@ -7,6 +7,7 @@
 #include <bpf/bpf.h>
 #include <bpf/btf.h>
 #include <bpf/libbpf.h>
+#include <linux/kernel.h>
 
 #define LOG2(x)                                                                                    \
     ({                                                                                             \
@@ -19,7 +20,7 @@
     })
 
 cuckoo_hashmap_t *cuckoo_table_init_by_fd(int map_fd, size_t key_size, size_t value_size,
-                                          uint32_t max_entries, cuckoo_error_t *err) {
+                                          uint32_t max_entries, bool aligned, cuckoo_error_t *err) {
     unsigned int num_cpus = 1;
     /* Calculating the size of every hash_cell */
     size_t hash_cell_size = 0;
@@ -28,8 +29,10 @@ cuckoo_hashmap_t *cuckoo_table_init_by_fd(int map_fd, size_t key_size, size_t va
     hash_cell_size += value_size;
 
     /* Since the BPF structure is aligned to 4, I need to round it if it is not aligned */
-    if (hash_cell_size % 4 != 0) {
-        hash_cell_size = (hash_cell_size / 4 + 1) * 4;
+    if (aligned) {
+        if (hash_cell_size % 4 != 0) {
+            hash_cell_size = (hash_cell_size / 4 + 1) * 4;
+        }
     }
 
     /* Calculating the size of the table inside the map */
@@ -38,8 +41,10 @@ cuckoo_hashmap_t *cuckoo_table_init_by_fd(int map_fd, size_t key_size, size_t va
     table_size += (hash_cell_size * max_entries);
 
     /* Since the BPF structure is aligned to 4, I need to round it if it is not aligned */
-    if (table_size % 4 != 0) {
-        table_size = (table_size / 4 + 1) * 4;
+    if (aligned) {
+        if (table_size % 4 != 0) {
+            table_size = (table_size / 4 + 1) * 4;
+        }
     }
 
     /* Calculating the size of the map */
@@ -49,8 +54,10 @@ cuckoo_hashmap_t *cuckoo_table_init_by_fd(int map_fd, size_t key_size, size_t va
     map_size += table_size; /* Second hash table */
 
     /* Since the BPF structure is aligned to 4, I need to round it if it is not aligned */
-    if (map_size % 4 != 0) {
-        map_size = (map_size / 4 + 1) * 4;
+    if (aligned) {
+        if (map_size % 4 != 0) {
+            map_size = (map_size / 4 + 1) * 4;
+        }
     }
 
     struct bpf_map_info info;
@@ -64,8 +71,6 @@ cuckoo_hashmap_t *cuckoo_table_init_by_fd(int map_fd, size_t key_size, size_t va
         return NULL;
     }
 
-    printf("Value size: %d\n", info.value_size);
-    printf("Key size: %d\n", info.key_size);
     /* Check if map size is equal to the size we calculated */
     if (info.value_size != map_size) {
         err->error_code = map_fd;
@@ -128,7 +133,7 @@ cuckoo_hashmap_t *cuckoo_table_init_by_fd(int map_fd, size_t key_size, size_t va
 }
 
 cuckoo_hashmap_t *cuckoo_table_init_by_id(int map_id, size_t key_size, size_t value_size,
-                                          uint32_t max_entries, cuckoo_error_t *err) {
+                                          uint32_t max_entries, bool aligned, cuckoo_error_t *err) {
     int map_fd = bpf_map_get_fd_by_id(map_id);
 
     if (map_fd < 0) {
@@ -137,7 +142,7 @@ cuckoo_hashmap_t *cuckoo_table_init_by_id(int map_id, size_t key_size, size_t va
         return NULL;
     }
 
-    return cuckoo_table_init_by_fd(map_fd, key_size, value_size, max_entries, err);
+    return cuckoo_table_init_by_fd(map_fd, key_size, value_size, max_entries, aligned, err);
 }
 
 typedef struct {
@@ -251,6 +256,8 @@ bool cuckoo_insert_loop(const cuckoo_hashmap_t *map, loop_ctx_t *ctx, cuckoo_err
 int cuckoo_insert(const cuckoo_hashmap_t *map, const void *key_to_insert,
                   const void *value_to_insert, size_t key_size, size_t value_size,
                   cuckoo_error_t *err) {
+    unsigned int step;
+    void *value = NULL;
     /* First of all, let's do a couple of checks if the
      * key and values matches the  ones we expect
      */
@@ -278,7 +285,14 @@ int cuckoo_insert(const cuckoo_hashmap_t *map, const void *key_to_insert,
     }
 
     /* Allocate memory for the entire map */
-    void *value = malloc(map->entire_map_size * map->num_cpus);
+    if (map->map_type == BPF_MAP_TYPE_PERCPU_ARRAY) {
+        value = malloc(roundup(map->entire_map_size, 8) * map->num_cpus);
+        step = roundup(map->entire_map_size, 8);
+    } else {
+        value = malloc(map->entire_map_size);
+        step = map->entire_map_size;
+    }
+
     if (value == NULL) {
         err->error_code = -1;
         strncpy(err->error_msg, "Failed to allocate memory for the map", CUCKOO_ERROR_MSG_SIZE);
@@ -295,10 +309,8 @@ int cuckoo_insert(const cuckoo_hashmap_t *map, const void *key_to_insert,
     }
 
     /* If I reach this point, the value pointer contains the entire map */
-    // int current_size = *(int*)value;
-
     for (int i = 0; i < map->num_cpus; i++) {
-        void *base_val = value + (i * map->entire_map_size);
+        void *base_val = value + (i * step);
         void *table1 = base_val + sizeof(int);
         void *table2 = table1 + map->table_size;
 
@@ -388,13 +400,14 @@ int cuckoo_insert(const cuckoo_hashmap_t *map, const void *key_to_insert,
     }
 
     free(value);
-
     return ret_val;
 }
 
 int cuckoo_lookup(const cuckoo_hashmap_t *map, const void *key, size_t key_size,
                   void *value_to_read, size_t value_to_read_size, bool *value_found,
                   size_t value_found_size, cuckoo_error_t *err) {
+    unsigned int step;
+    void *map_val;
     if (map == NULL) {
         err->error_code = -1;
         strncpy(err->error_msg, "Map is NULL", CUCKOO_ERROR_MSG_SIZE);
@@ -426,7 +439,14 @@ int cuckoo_lookup(const cuckoo_hashmap_t *map, const void *key, size_t key_size,
     }
 
     /* Allocate memory for the entire map */
-    void *map_val = malloc(map->entire_map_size * map->num_cpus);
+    if (map->map_type == BPF_MAP_TYPE_PERCPU_ARRAY) {
+        map_val = malloc(roundup(map->entire_map_size, 8) * map->num_cpus);
+        step = roundup(map->entire_map_size, 8);
+    } else {
+        map_val = malloc(map->entire_map_size);
+        step = map->entire_map_size;
+    }
+
     if (map_val == NULL) {
         err->error_code = -1;
         strncpy(err->error_msg, "Failed to allocate memory for the map", CUCKOO_ERROR_MSG_SIZE);
@@ -444,9 +464,11 @@ int cuckoo_lookup(const cuckoo_hashmap_t *map, const void *key, size_t key_size,
     }
 
     for (int i = 0; i < map->num_cpus; i++) {
-        void *base_val = map_val + (i * map->entire_map_size);
+        void *base_val = map_val + (i * step);
         void *table1 = base_val + sizeof(int);
         void *table2 = table1 + map->table_size;
+
+        // printf("Number of entries in map on CPU %d: %d\n", i, *(int *)base_val);
 
         /* Now let's calculate the first hash of the key */
         uint32_t hash1 = fasthash32(key, key_size, HASH_SEED_1);
@@ -507,6 +529,8 @@ int cuckoo_lookup(const cuckoo_hashmap_t *map, const void *key, size_t key_size,
 int cuckoo_delete(const cuckoo_hashmap_t *map, const void *key, size_t key_size,
                   cuckoo_error_t *err) {
     int ret_val = 0;
+    unsigned int step;
+    void *map_val;
     if (map == NULL) {
         err->error_code = -1;
         strncpy(err->error_msg, "Map is NULL", CUCKOO_ERROR_MSG_SIZE);
@@ -522,7 +546,14 @@ int cuckoo_delete(const cuckoo_hashmap_t *map, const void *key, size_t key_size,
     }
 
     /* Allocate memory for the entire map */
-    void *map_val = malloc(map->entire_map_size * map->num_cpus);
+    if (map->map_type == BPF_MAP_TYPE_PERCPU_ARRAY) {
+        map_val = malloc(roundup(map->entire_map_size, 8) * map->num_cpus);
+        step = roundup(map->entire_map_size, 8);
+    } else {
+        map_val = malloc(map->entire_map_size);
+        step = map->entire_map_size;
+    }
+
     if (map_val == NULL) {
         err->error_code = -1;
         strncpy(err->error_msg, "Failed to allocate memory for the map", CUCKOO_ERROR_MSG_SIZE);
@@ -540,7 +571,7 @@ int cuckoo_delete(const cuckoo_hashmap_t *map, const void *key, size_t key_size,
     }
 
     for (int i = 0; i < map->num_cpus; i++) {
-        void *base_val = map_val + (i * map->entire_map_size);
+        void *base_val = map_val + (i * step);
         void *table1 = base_val + sizeof(int);
         void *table2 = table1 + map->table_size;
 

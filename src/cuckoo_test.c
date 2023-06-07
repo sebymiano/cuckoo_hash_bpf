@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause)
-/* Copyright (c) 2020 Facebook */
+/* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
+/* Copyright (c) 2022 Sebastiano Miano <mianosebastiano@gmail.com> */
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/resource.h>
@@ -179,11 +179,6 @@ TEST test6_lookup_after_insert(void) {
 
     PASSm("Test on checking lookups passed");
 }
-
-// /* Suites can group multiple tests with common setup. */
-// SUITE(the_suite) {
-//     RUN_TEST(x_should_equal_1);
-// }
 
 /* Add definitions that need to be in the test runner's main file. */
 GREATEST_MAIN_DEFS();

@@ -41,6 +41,8 @@
         4 + (int)(4 * LOG2(_x) / LOG2(2) + 0.5);                                                   \
     })
 
+//__attribute__((packed, aligned(4)));
+
 #define BPF_CUCKOO_HASH(_name, _key_type, _leaf_type, _max_entries)                                \
     static const uint32_t _name##_map_capacity = _max_entries;                                     \
     typedef _leaf_type _name##_cuckoo_val_t;                                                       \
@@ -50,21 +52,21 @@
         bool is_filled;                                                                            \
         _name##_cuckoo_key_t key;                                                                  \
         _name##_cuckoo_val_t val;                                                                  \
-    } __attribute__((packed, aligned(4)));                                                                                             \
+    } __attribute__((__packed__));                                                                 \
                                                                                                    \
     struct _name##_cuckoo_hash_table {                                                             \
         int current_size;                                                                          \
         struct _name##_cuckoo_hash_cell elem_list[_max_entries];                                   \
-    } __attribute__((packed, aligned(4)));                                                                                             \
+    } __attribute__((__packed__));                                                                 \
                                                                                                    \
     struct _name##_cuckoo_hash_map {                                                               \
         int current_size;                    /* Current size */                                    \
         struct _name##_cuckoo_hash_table t1; /* First hash table */                                \
         struct _name##_cuckoo_hash_table t2; /* Second hash table */                               \
-    } __attribute__((packed, aligned(4)));                                                                                             \
+    } __attribute__((__packed__));                                                                 \
                                                                                                    \
     struct {                                                                                       \
-        __uint(type, BPF_MAP_TYPE_ARRAY);                                                   \
+        __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);                                                   \
         __type(key, __u32);                                                                        \
         __type(value, struct _name##_cuckoo_hash_map);                                             \
         __uint(max_entries, 1);                                                                    \

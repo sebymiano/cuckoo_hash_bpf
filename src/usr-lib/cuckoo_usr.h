@@ -47,6 +47,9 @@ typedef struct {
  * @param value_size The size of the value in bytes.
  * @param max_entries The maximum number of entries that can be stored in the
  * hashmap.
+ * @param aligned If true, we perform additional operations to align the
+ * hashmap to the 4 bytes boundary. Unless you changed the definition of
+ * BPF Cuckoo Hashmap in the kernel, this should be set to false.
  * @param err Pointer to a **cuckoo_error_t** object that will be populated with
  * the error code and message if the function fails.
  * @return A pointer to a **cuckoo_hashmap_t** object if the function succeeds,
@@ -55,7 +58,7 @@ typedef struct {
  */
 LIBCUCKOO_API cuckoo_hashmap_t *cuckoo_table_init_by_fd(int map_fd, size_t key_size,
                                                         size_t value_size, uint32_t max_entries,
-                                                        cuckoo_error_t *err);
+                                                        bool aligned, cuckoo_error_t *err);
 
 /**
  * @brief **cuckoo_table_init_by_id()** initializes the internal cuckoo hashmap object
@@ -66,6 +69,9 @@ LIBCUCKOO_API cuckoo_hashmap_t *cuckoo_table_init_by_fd(int map_fd, size_t key_s
  * @param value_size The size of the value in bytes.
  * @param max_entries The maximum number of entries that can be stored in the
  * hashmap.
+ * @param aligned If true, we perform additional operations to align the
+ * hashmap to the 4 bytes boundary. Unless you changed the definition of
+ * BPF Cuckoo Hashmap in the kernel, this should be set to false.
  * @param err Pointer to a **cuckoo_error_t** object that will be populated with
  * the error code and message if the function fails.
  * @return A pointer to a **cuckoo_hashmap_t** object if the function succeeds,
@@ -74,7 +80,7 @@ LIBCUCKOO_API cuckoo_hashmap_t *cuckoo_table_init_by_fd(int map_fd, size_t key_s
  */
 LIBCUCKOO_API cuckoo_hashmap_t *cuckoo_table_init_by_id(int map_id, size_t key_size,
                                                         size_t value_size, uint32_t max_entries,
-                                                        cuckoo_error_t *err);
+                                                        bool aligned, cuckoo_error_t *err);
 
 /**
  * @brief **cuckoo_insert()** inserts a key-value pair into the cuckoo hashmap.
