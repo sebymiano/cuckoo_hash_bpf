@@ -50,21 +50,21 @@
         bool is_filled;                                                                            \
         _name##_cuckoo_key_t key;                                                                  \
         _name##_cuckoo_val_t val;                                                                  \
-    };                                                                                             \
+    } __attribute__((packed, aligned(4)));                                                                                             \
                                                                                                    \
     struct _name##_cuckoo_hash_table {                                                             \
         int current_size;                                                                          \
         struct _name##_cuckoo_hash_cell elem_list[_max_entries];                                   \
-    };                                                                                             \
+    } __attribute__((packed, aligned(4)));                                                                                             \
                                                                                                    \
     struct _name##_cuckoo_hash_map {                                                               \
         int current_size;                    /* Current size */                                    \
         struct _name##_cuckoo_hash_table t1; /* First hash table */                                \
         struct _name##_cuckoo_hash_table t2; /* Second hash table */                               \
-    };                                                                                             \
+    } __attribute__((packed, aligned(4)));                                                                                             \
                                                                                                    \
     struct {                                                                                       \
-        __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);                                                   \
+        __uint(type, BPF_MAP_TYPE_ARRAY);                                                   \
         __type(key, __u32);                                                                        \
         __type(value, struct _name##_cuckoo_hash_map);                                             \
         __uint(max_entries, 1);                                                                    \

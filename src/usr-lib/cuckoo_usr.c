@@ -1,37 +1,57 @@
+/* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
+/* Copyright (c) 2023 Sebastiano Miano <mianosebastiano@gmail.com> */
+
 #include "cuckoo_usr.h"
 
 #include "../ebpf/lib/fasthash.h"
 #include <bpf/bpf.h>
 #include <bpf/btf.h>
 #include <bpf/libbpf.h>
-#include <math.h>
 
-cuckoo_hashmap_t *cuckoo_table_init(int map_id, size_t key_size, size_t value_size,
-                                    uint32_t max_entries, cuckoo_error_t *err) {
-    int map_fd = bpf_map_get_fd_by_id(map_id);
+#define LOG2(x)                                                                                    \
+    ({                                                                                             \
+        unsigned _x = (x);                                                                         \
+        unsigned _result = 0;                                                                      \
+        while (_x >>= 1) {                                                                         \
+            _result++;                                                                             \
+        }                                                                                          \
+        _result;                                                                                   \
+    })
 
-    if (map_fd < 0) {
-        err->error_code = map_fd;
-        strncpy(err->error_msg, "Failed to get map fd", CUCKOO_ERROR_MSG_SIZE);
-        return NULL;
-    }
-
+cuckoo_hashmap_t *cuckoo_table_init_by_fd(int map_fd, size_t key_size, size_t value_size,
+                                          uint32_t max_entries, cuckoo_error_t *err) {
+    unsigned int num_cpus = 1;
     /* Calculating the size of every hash_cell */
     size_t hash_cell_size = 0;
     hash_cell_size += sizeof(bool);
     hash_cell_size += key_size;
     hash_cell_size += value_size;
 
+    /* Since the BPF structure is aligned to 4, I need to round it if it is not aligned */
+    if (hash_cell_size % 4 != 0) {
+        hash_cell_size = (hash_cell_size / 4 + 1) * 4;
+    }
+
     /* Calculating the size of the table inside the map */
     size_t table_size = 0;
     table_size += sizeof(int);
     table_size += (hash_cell_size * max_entries);
+
+    /* Since the BPF structure is aligned to 4, I need to round it if it is not aligned */
+    if (table_size % 4 != 0) {
+        table_size = (table_size / 4 + 1) * 4;
+    }
 
     /* Calculating the size of the map */
     size_t map_size = 0;
     map_size += sizeof(int);
     map_size += table_size; /* First hash table */
     map_size += table_size; /* Second hash table */
+
+    /* Since the BPF structure is aligned to 4, I need to round it if it is not aligned */
+    if (map_size % 4 != 0) {
+        map_size = (map_size / 4 + 1) * 4;
+    }
 
     struct bpf_map_info info;
     __u32 len = sizeof(info);
@@ -44,6 +64,8 @@ cuckoo_hashmap_t *cuckoo_table_init(int map_id, size_t key_size, size_t value_si
         return NULL;
     }
 
+    printf("Value size: %d\n", info.value_size);
+    printf("Key size: %d\n", info.key_size);
     /* Check if map size is equal to the size we calculated */
     if (info.value_size != map_size) {
         err->error_code = map_fd;
@@ -63,11 +85,11 @@ cuckoo_hashmap_t *cuckoo_table_init(int map_id, size_t key_size, size_t value_si
     }
 
     /* Check if the map type is also what we expect */
-    if (info.type != BPF_MAP_TYPE_PERCPU_ARRAY) {
+    if (info.type != BPF_MAP_TYPE_PERCPU_ARRAY && info.type != BPF_MAP_TYPE_ARRAY) {
         err->error_code = map_fd;
         snprintf(err->error_msg, CUCKOO_ERROR_MSG_SIZE,
-                 "Map type (%d) is not equal to the size we expect (%d)", info.type,
-                 BPF_MAP_TYPE_PERCPU_ARRAY);
+                 "Map type (%d) is not equal to the size we expect (%d or %d)", info.type,
+                 BPF_MAP_TYPE_PERCPU_ARRAY, BPF_MAP_TYPE_ARRAY);
         return NULL;
     }
 
@@ -87,8 +109,14 @@ cuckoo_hashmap_t *cuckoo_table_init(int map_id, size_t key_size, size_t value_si
         return NULL;
     }
 
+    if (info.type == BPF_MAP_TYPE_PERCPU_ARRAY) {
+        num_cpus = libbpf_num_possible_cpus();
+    }
+
     map->map_fd = map_fd;
-    map->map_id = map_id;
+    map->map_id = info.id;
+    map->map_type = info.type;
+    map->num_cpus = num_cpus;
     map->key_size = key_size;
     map->value_size = value_size;
     map->max_entries = max_entries;
@@ -97,6 +125,19 @@ cuckoo_hashmap_t *cuckoo_table_init(int map_id, size_t key_size, size_t value_si
     map->entire_map_size = map_size;
 
     return map;
+}
+
+cuckoo_hashmap_t *cuckoo_table_init_by_id(int map_id, size_t key_size, size_t value_size,
+                                          uint32_t max_entries, cuckoo_error_t *err) {
+    int map_fd = bpf_map_get_fd_by_id(map_id);
+
+    if (map_fd < 0) {
+        err->error_code = map_fd;
+        strncpy(err->error_msg, "Failed to get map fd", CUCKOO_ERROR_MSG_SIZE);
+        return NULL;
+    }
+
+    return cuckoo_table_init_by_fd(map_fd, key_size, value_size, max_entries, err);
 }
 
 typedef struct {
@@ -237,7 +278,7 @@ int cuckoo_insert(const cuckoo_hashmap_t *map, const void *key_to_insert,
     }
 
     /* Allocate memory for the entire map */
-    void *value = malloc(map->entire_map_size);
+    void *value = malloc(map->entire_map_size * map->num_cpus);
     if (value == NULL) {
         err->error_code = -1;
         strncpy(err->error_msg, "Failed to allocate memory for the map", CUCKOO_ERROR_MSG_SIZE);
@@ -256,83 +297,87 @@ int cuckoo_insert(const cuckoo_hashmap_t *map, const void *key_to_insert,
     /* If I reach this point, the value pointer contains the entire map */
     // int current_size = *(int*)value;
 
-    /* Let's now calculate the pointer to the two tables */
-    void *table1 = value + sizeof(int);
-    void *table2 = table1 + map->table_size;
+    for (int i = 0; i < map->num_cpus; i++) {
+        void *base_val = value + (i * map->entire_map_size);
+        void *table1 = base_val + sizeof(int);
+        void *table2 = table1 + map->table_size;
 
-    /*
-     * If the element is already there, overwrite and return.
-     */
+        /*
+         * If the element is already there, overwrite and return.
+         */
 
-    /* Now let's calculate the first hash of the key */
-    uint32_t hash1 = fasthash32(key_to_insert, key_size, HASH_SEED_1);
-    uint32_t idx = hash1 & (map->max_entries - 1);
-    if (idx >= map->max_entries) {
-        err->error_code = -1;
-        snprintf(err->error_msg, CUCKOO_ERROR_MSG_SIZE,
-                 "Index (%d) is greater than the max entries (%d)", idx, map->max_entries);
-        free(value);
-        return -1;
-    }
+        /* Now let's calculate the first hash of the key */
+        uint32_t hash1 = fasthash32(key_to_insert, key_size, HASH_SEED_1);
+        uint32_t idx = hash1 & (map->max_entries - 1);
+        if (idx >= map->max_entries) {
+            err->error_code = -1;
+            snprintf(err->error_msg, CUCKOO_ERROR_MSG_SIZE,
+                     "[CPU %d] Index (%d) is greater than the max entries (%d)", i, idx,
+                     map->max_entries);
+            free(value);
+            return -1;
+        }
 
-    /* Let's get the pointer to the value we are interested */
-    void *elem_with_idx = table1 + sizeof(int) + (idx * map->hash_cell_size);
-    bool elem_is_filled = *(bool *)elem_with_idx;
-    void *elem_key = elem_with_idx + sizeof(bool);
-    void *elem_value = elem_key + map->key_size;
-    if (elem_is_filled) {
-        if (memcmp(key_to_insert, elem_key, map->key_size) == 0) {
-            memcpy(elem_value, value_to_insert, map->value_size);
-            ret_val = 1;
-            goto update_map_insert;
+        /* Let's get the pointer to the value we are interested */
+        void *elem_with_idx = table1 + sizeof(int) + (idx * map->hash_cell_size);
+        bool elem_is_filled = *(bool *)elem_with_idx;
+        void *elem_key = elem_with_idx + sizeof(bool);
+        void *elem_value = elem_key + map->key_size;
+        if (elem_is_filled) {
+            if (memcmp(key_to_insert, elem_key, map->key_size) == 0) {
+                memcpy(elem_value, value_to_insert, map->value_size);
+                // TODO: Better way to indicate that a specific value has been
+                // updated, and not inserted for the first time?
+                ret_val = 1;
+                continue;
+            }
+        }
+
+        /* Now let's calculate the second hash of the key */
+        uint32_t hash2 = fasthash32(key_to_insert, key_size, HASH_SEED_2);
+        idx = hash2 & (map->max_entries - 1);
+        if (idx >= map->max_entries) {
+            err->error_code = -1;
+            snprintf(err->error_msg, CUCKOO_ERROR_MSG_SIZE,
+                     "Index (%d) is greater than the max entries (%d)", idx, map->max_entries);
+            free(value);
+            return -1;
+        }
+
+        /* Let's get the pointer to the value we are interested */
+        elem_with_idx = table2 + sizeof(int) + (idx * map->hash_cell_size);
+        elem_is_filled = *(bool *)elem_with_idx;
+        elem_key = elem_with_idx + sizeof(bool);
+        elem_value = elem_key + map->key_size;
+        if (elem_is_filled) {
+            if (memcmp(key_to_insert, elem_key, map->key_size) == 0) {
+                memcpy(elem_value, value_to_insert, map->value_size);
+                ret_val = 1;
+                continue;
+            }
+        }
+
+        /*
+         * If not, the insert the new element in the map.
+         */
+
+        loop_ctx_t ctx = {.key_to_insert = key_to_insert,
+                          .value_to_insert = value_to_insert,
+                          .key_size = key_size,
+                          .value_size = value_size,
+                          .loop_cnt = 4 + (int)(4 * LOG2(map->max_entries) / LOG2(2) + 0.5),
+                          .h1 = hash1,
+                          .h2 = hash2,
+                          .t1_ptr = table1,
+                          .t2_ptr = table2,
+                          .map_ptr = base_val};
+
+        if (!cuckoo_insert_loop(map, &ctx, err)) {
+            free(value);
+            return -1;
         }
     }
 
-    /* Now let's calculate the second hash of the key */
-    uint32_t hash2 = fasthash32(key_to_insert, key_size, HASH_SEED_2);
-    idx = hash2 & (map->max_entries - 1);
-    if (idx >= map->max_entries) {
-        err->error_code = -1;
-        snprintf(err->error_msg, CUCKOO_ERROR_MSG_SIZE,
-                 "Index (%d) is greater than the max entries (%d)", idx, map->max_entries);
-        free(value);
-        return -1;
-    }
-
-    /* Let's get the pointer to the value we are interested */
-    elem_with_idx = table2 + sizeof(int) + (idx * map->hash_cell_size);
-    elem_is_filled = *(bool *)elem_with_idx;
-    elem_key = elem_with_idx + sizeof(bool);
-    elem_value = elem_key + map->key_size;
-    if (elem_is_filled) {
-        if (memcmp(key_to_insert, elem_key, map->key_size) == 0) {
-            memcpy(elem_value, value_to_insert, map->value_size);
-            ret_val = 1;
-            goto update_map_insert;
-        }
-    }
-
-    /*
-     * If not, the insert the new element in the map.
-     */
-
-    loop_ctx_t ctx = {.key_to_insert = key_to_insert,
-                      .value_to_insert = value_to_insert,
-                      .key_size = key_size,
-                      .value_size = value_size,
-                      .loop_cnt = 4 + (int)(4 * log(map->max_entries) / log(2) + 0.5),
-                      .h1 = hash1,
-                      .h2 = hash2,
-                      .t1_ptr = table1,
-                      .t2_ptr = table2,
-                      .map_ptr = value};
-
-    if (!cuckoo_insert_loop(map, &ctx, err)) {
-        free(value);
-        return -1;
-    }
-
-update_map_insert:
     /* Update the map */
     ret = bpf_map_update_elem(map->map_fd, &key_map, value, BPF_ANY);
     if (ret) {
@@ -348,7 +393,8 @@ update_map_insert:
 }
 
 int cuckoo_lookup(const cuckoo_hashmap_t *map, const void *key, size_t key_size,
-                  void *value_to_read, cuckoo_error_t *err) {
+                  void *value_to_read, size_t value_to_read_size, bool *value_found,
+                  size_t value_found_size, cuckoo_error_t *err) {
     if (map == NULL) {
         err->error_code = -1;
         strncpy(err->error_msg, "Map is NULL", CUCKOO_ERROR_MSG_SIZE);
@@ -363,8 +409,24 @@ int cuckoo_lookup(const cuckoo_hashmap_t *map, const void *key, size_t key_size,
         return -1;
     }
 
+    if (value_to_read_size != (map->value_size * map->num_cpus)) {
+        err->error_code = -1;
+        snprintf(err->error_msg, CUCKOO_ERROR_MSG_SIZE,
+                 "Value size (%ld) is not equal to the size we expect (%ld)", value_to_read_size,
+                 (map->value_size * map->num_cpus));
+        return -1;
+    }
+
+    if (value_found_size != (map->num_cpus * sizeof(bool))) {
+        err->error_code = -1;
+        snprintf(err->error_msg, CUCKOO_ERROR_MSG_SIZE,
+                 "Value found size (%ld) is not equal to the size we expect (%ld)",
+                 value_found_size, (map->num_cpus * sizeof(bool)));
+        return -1;
+    }
+
     /* Allocate memory for the entire map */
-    void *map_val = malloc(map->entire_map_size);
+    void *map_val = malloc(map->entire_map_size * map->num_cpus);
     if (map_val == NULL) {
         err->error_code = -1;
         strncpy(err->error_msg, "Failed to allocate memory for the map", CUCKOO_ERROR_MSG_SIZE);
@@ -381,62 +443,65 @@ int cuckoo_lookup(const cuckoo_hashmap_t *map, const void *key, size_t key_size,
         return -1;
     }
 
-    void *table1 = map_val + sizeof(int);
-    void *table2 = table1 + map->table_size;
+    for (int i = 0; i < map->num_cpus; i++) {
+        void *base_val = map_val + (i * map->entire_map_size);
+        void *table1 = base_val + sizeof(int);
+        void *table2 = table1 + map->table_size;
 
-    /* Now let's calculate the first hash of the key */
-    uint32_t hash1 = fasthash32(key, key_size, HASH_SEED_1);
-    uint32_t idx = hash1 & (map->max_entries - 1);
-    if (idx >= map->max_entries) {
-        err->error_code = -1;
-        snprintf(err->error_msg, CUCKOO_ERROR_MSG_SIZE,
-                 "Index (%d) is greater than the max entries (%d)", idx, map->max_entries);
-        free(map_val);
-        return -1;
-    }
-
-    /* Let's get the pointer to the value we are interested */
-    void *elem_with_idx = table1 + sizeof(int) + (idx * map->hash_cell_size);
-    bool elem_is_filled = *(bool *)elem_with_idx;
-    void *elem_key = elem_with_idx + sizeof(bool);
-    void *elem_value = elem_key + map->key_size;
-
-    if (elem_is_filled) {
-        if (memcmp(key, elem_key, map->key_size) == 0) {
-            memcpy(value_to_read, elem_value, map->value_size);
+        /* Now let's calculate the first hash of the key */
+        uint32_t hash1 = fasthash32(key, key_size, HASH_SEED_1);
+        uint32_t idx = hash1 & (map->max_entries - 1);
+        if (idx >= map->max_entries) {
+            err->error_code = -1;
+            snprintf(err->error_msg, CUCKOO_ERROR_MSG_SIZE,
+                     "Index (%d) is greater than the max entries (%d)", idx, map->max_entries);
             free(map_val);
-            return 0;
+            return -1;
         }
-    }
 
-    /* Now let's calculate the second hash of the key */
-    uint32_t hash2 = fasthash32(key, key_size, HASH_SEED_2);
-    idx = hash2 & (map->max_entries - 1);
-    if (idx >= map->max_entries) {
-        err->error_code = -1;
-        snprintf(err->error_msg, CUCKOO_ERROR_MSG_SIZE,
-                 "Index (%d) is greater than the max entries (%d)", idx, map->max_entries);
-        free(map_val);
-        return -1;
-    }
+        /* Let's get the pointer to the value we are interested */
+        void *elem_with_idx = table1 + sizeof(int) + (idx * map->hash_cell_size);
+        bool elem_is_filled = *(bool *)elem_with_idx;
+        void *elem_key = elem_with_idx + sizeof(bool);
+        void *elem_value = elem_key + map->key_size;
 
-    /* Let's get the pointer to the value we are interested */
-    elem_with_idx = table2 + sizeof(int) + (idx * map->hash_cell_size);
-    elem_is_filled = *(bool *)elem_with_idx;
-    elem_key = elem_with_idx + sizeof(bool);
-    elem_value = elem_key + map->key_size;
-    if (elem_is_filled) {
-        if (memcmp(key, elem_key, map->key_size) == 0) {
-            memcpy(value_to_read, elem_value, map->value_size);
+        if (elem_is_filled) {
+            if (memcmp(key, elem_key, map->key_size) == 0) {
+                memcpy(value_to_read + (i * map->value_size), elem_value, map->value_size);
+                value_found[i] = true;
+                continue;
+            }
+        }
+
+        /* Now let's calculate the second hash of the key */
+        uint32_t hash2 = fasthash32(key, key_size, HASH_SEED_2);
+        idx = hash2 & (map->max_entries - 1);
+        if (idx >= map->max_entries) {
+            err->error_code = -1;
+            snprintf(err->error_msg, CUCKOO_ERROR_MSG_SIZE,
+                     "Index (%d) is greater than the max entries (%d)", idx, map->max_entries);
             free(map_val);
-            return 0;
+            return -1;
         }
+
+        /* Let's get the pointer to the value we are interested */
+        elem_with_idx = table2 + sizeof(int) + (idx * map->hash_cell_size);
+        elem_is_filled = *(bool *)elem_with_idx;
+        elem_key = elem_with_idx + sizeof(bool);
+        elem_value = elem_key + map->key_size;
+        if (elem_is_filled) {
+            if (memcmp(key, elem_key, map->key_size) == 0) {
+                memcpy(value_to_read + (i * map->value_size), elem_value, map->value_size);
+                value_found[i] = true;
+                continue;
+            }
+        }
+
+        value_found[i] = false;
     }
 
-    err->error_code = -1;
-    strncpy(err->error_msg, "Key not found", CUCKOO_ERROR_MSG_SIZE);
     free(map_val);
-    return -1;
+    return 0;
 }
 
 int cuckoo_delete(const cuckoo_hashmap_t *map, const void *key, size_t key_size,
@@ -457,7 +522,7 @@ int cuckoo_delete(const cuckoo_hashmap_t *map, const void *key, size_t key_size,
     }
 
     /* Allocate memory for the entire map */
-    void *map_val = malloc(map->entire_map_size);
+    void *map_val = malloc(map->entire_map_size * map->num_cpus);
     if (map_val == NULL) {
         err->error_code = -1;
         strncpy(err->error_msg, "Failed to allocate memory for the map", CUCKOO_ERROR_MSG_SIZE);
@@ -474,68 +539,70 @@ int cuckoo_delete(const cuckoo_hashmap_t *map, const void *key, size_t key_size,
         return -1;
     }
 
-    void *table1 = map_val + sizeof(int);
-    void *table2 = table1 + map->table_size;
+    for (int i = 0; i < map->num_cpus; i++) {
+        void *base_val = map_val + (i * map->entire_map_size);
+        void *table1 = base_val + sizeof(int);
+        void *table2 = table1 + map->table_size;
 
-    /* Now let's calculate the first hash of the key */
-    uint32_t hash1 = fasthash32(key, key_size, HASH_SEED_1);
-    uint32_t idx = hash1 & (map->max_entries - 1);
-    if (idx >= map->max_entries) {
-        err->error_code = -1;
-        snprintf(err->error_msg, CUCKOO_ERROR_MSG_SIZE,
-                 "Index (%d) is greater than the max entries (%d)", idx, map->max_entries);
-        free(map_val);
-        return -1;
-    }
+        /* Now let's calculate the first hash of the key */
+        uint32_t hash1 = fasthash32(key, key_size, HASH_SEED_1);
+        uint32_t idx = hash1 & (map->max_entries - 1);
+        if (idx >= map->max_entries) {
+            err->error_code = -1;
+            snprintf(err->error_msg, CUCKOO_ERROR_MSG_SIZE,
+                     "Index (%d) is greater than the max entries (%d)", idx, map->max_entries);
+            free(map_val);
+            return -1;
+        }
 
-    /* Let's get the pointer to the value we are interested */
-    void *elem_with_idx = table1 + sizeof(int) + (idx * map->hash_cell_size);
-    bool elem_is_filled = *(bool *)elem_with_idx;
-    void *elem_key = elem_with_idx + sizeof(bool);
+        /* Let's get the pointer to the value we are interested */
+        void *elem_with_idx = table1 + sizeof(int) + (idx * map->hash_cell_size);
+        bool elem_is_filled = *(bool *)elem_with_idx;
+        void *elem_key = elem_with_idx + sizeof(bool);
 
-    if (elem_is_filled) {
-        if (memcmp(key, elem_key, map->key_size) == 0) {
-            *(bool *)elem_with_idx = false;
-            // Decrease table size
-            (*(int *)table1)--;
-            // Decrease total map current size
-            (*(int *)map_val)--;
+        if (elem_is_filled) {
+            if (memcmp(key, elem_key, map->key_size) == 0) {
+                *(bool *)elem_with_idx = false;
+                // Decrease table size
+                (*(int *)table1)--;
+                // Decrease total map current size
+                (*(int *)base_val)--;
 
-            ret_val = 0;
-            goto update_map_delete;
+                ret_val = 0;
+                continue;
+            }
+        }
+
+        /* Now let's calculate the second hash of the key */
+        uint32_t hash2 = fasthash32(key, key_size, HASH_SEED_2);
+        idx = hash2 & (map->max_entries - 1);
+        if (idx >= map->max_entries) {
+            err->error_code = -1;
+            snprintf(err->error_msg, CUCKOO_ERROR_MSG_SIZE,
+                     "Index (%d) is greater than the max entries (%d)", idx, map->max_entries);
+            free(map_val);
+            return -1;
+        }
+
+        /* Let's get the pointer to the value we are interested */
+        elem_with_idx = table2 + sizeof(int) + (idx * map->hash_cell_size);
+        elem_is_filled = *(bool *)elem_with_idx;
+        elem_key = elem_with_idx + sizeof(bool);
+
+        if (elem_is_filled) {
+            if (memcmp(key, elem_key, map->key_size) == 0) {
+                *(bool *)elem_with_idx = false;
+                // Decrease table size
+                (*(int *)table2)--;
+                // Decrease total map current size
+                (*(int *)base_val)--;
+
+                ret_val = 0;
+                continue;
+            }
         }
     }
 
-    /* Now let's calculate the second hash of the key */
-    uint32_t hash2 = fasthash32(key, key_size, HASH_SEED_2);
-    idx = hash2 & (map->max_entries - 1);
-    if (idx >= map->max_entries) {
-        err->error_code = -1;
-        snprintf(err->error_msg, CUCKOO_ERROR_MSG_SIZE,
-                 "Index (%d) is greater than the max entries (%d)", idx, map->max_entries);
-        free(map_val);
-        return -1;
-    }
-
-    /* Let's get the pointer to the value we are interested */
-    elem_with_idx = table2 + sizeof(int) + (idx * map->hash_cell_size);
-    elem_is_filled = *(bool *)elem_with_idx;
-    elem_key = elem_with_idx + sizeof(bool);
-
-    if (elem_is_filled) {
-        if (memcmp(key, elem_key, map->key_size) == 0) {
-            *(bool *)elem_with_idx = false;
-            // Decrease table size
-            (*(int *)table2)--;
-            // Decrease total map current size
-            (*(int *)map_val)--;
-
-            ret_val = 0;
-            goto update_map_delete;
-        }
-    }
-
-update_map_delete:
     /* Update the map */
     ret = bpf_map_update_elem(map->map_fd, &key_map, map_val, BPF_ANY);
     if (ret) {
