@@ -73,7 +73,8 @@ cuckoo_hashmap_t *cuckoo_table_init_by_fd(int map_fd, size_t key_size, size_t va
     int ret = bpf_obj_get_info_by_fd(map_fd, &info, &len);
     if (ret) {
         err->error_code = ret;
-        strncpy(err->error_msg, "Failed to get map info", CUCKOO_ERROR_MSG_SIZE);
+        snprintf(err->error_msg, CUCKOO_ERROR_MSG_SIZE,
+                 "Failed to get map info for fd (%d)", map_fd);
         return NULL;
     }
 
