@@ -21,6 +21,12 @@
 
 cuckoo_hashmap_t *cuckoo_table_init_by_fd(int map_fd, size_t key_size, size_t value_size,
                                           uint32_t max_entries, bool aligned, cuckoo_error_t *err) {
+
+    /* Check if err is not NULL */
+    if (err == NULL) {
+        return NULL;
+    }
+
     unsigned int num_cpus = 1;
     /* Calculating the size of every hash_cell */
     size_t hash_cell_size = 0;
@@ -134,6 +140,11 @@ cuckoo_hashmap_t *cuckoo_table_init_by_fd(int map_fd, size_t key_size, size_t va
 
 cuckoo_hashmap_t *cuckoo_table_init_by_id(int map_id, size_t key_size, size_t value_size,
                                           uint32_t max_entries, bool aligned, cuckoo_error_t *err) {
+    /* Check if err is not NULL */
+    if (err == NULL) {
+        return NULL;
+    }
+
     int map_fd = bpf_map_get_fd_by_id(map_id);
 
     if (map_fd < 0) {
@@ -261,6 +272,10 @@ int cuckoo_insert(const cuckoo_hashmap_t *map, const void *key_to_insert,
     /* First of all, let's do a couple of checks if the
      * key and values matches the  ones we expect
      */
+    if (err == NULL) {
+        return -1;
+    }
+
     int ret_val = 0;
     if (map == NULL) {
         err->error_code = -1;
@@ -408,6 +423,12 @@ int cuckoo_lookup(const cuckoo_hashmap_t *map, const void *key, size_t key_size,
                   size_t value_found_size, cuckoo_error_t *err) {
     unsigned int step;
     void *map_val;
+
+    /* Check if err is not NULL */
+    if (err == NULL) {
+        return -1;
+    }
+
     if (map == NULL) {
         err->error_code = -1;
         strncpy(err->error_msg, "Map is NULL", CUCKOO_ERROR_MSG_SIZE);
@@ -531,6 +552,12 @@ int cuckoo_delete(const cuckoo_hashmap_t *map, const void *key, size_t key_size,
     int ret_val = 0;
     unsigned int step;
     void *map_val;
+    
+    /* Check if err is not NULL */
+    if (err == NULL) {
+        return NULL;
+    }
+
     if (map == NULL) {
         err->error_code = -1;
         strncpy(err->error_msg, "Map is NULL", CUCKOO_ERROR_MSG_SIZE);
