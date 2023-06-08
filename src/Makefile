@@ -8,6 +8,7 @@ LIBBPF_SRC := $(abspath ../libbpf/src)
 BPFTOOL_SRC := $(abspath ../bpftool/src)
 LIBGREATEST_SRC := $(abspath ../greatest)
 LIBBPF_OBJ := $(abspath $(OUTPUT)/libbpf.a)
+LIBBPF_OBJ_SHARED := $(abspath $(OUTPUT)/libbpf.so)
 LIBBPF_PKGCONFIG := $(abspath $(OUTPUT)/pkgconfig)
 BPFTOOL_OUTPUT ?= $(abspath $(OUTPUT)/bpftool)
 TEST_BIN := $(abspath ./cuckoo_test)
@@ -91,7 +92,7 @@ $(OUTPUT) $(OUTPUT)/libbpf $(BPFTOOL_OUTPUT):
 # Build libbpf
 $(LIBBPF_OBJ): $(wildcard $(LIBBPF_SRC)/*.[ch] $(LIBBPF_SRC)/Makefile) | $(OUTPUT)/libbpf
 	$(call msg,LIB,$@)
-	$(Q)$(MAKE) -C $(LIBBPF_SRC) BUILD_STATIC_ONLY=1		      \
+	$(Q)$(MAKE) -C $(LIBBPF_SRC) 	      \
 		    OBJDIR=$(dir $@)/libbpf DESTDIR=$(dir $@)		      \
 		    INCLUDEDIR= LIBDIR= UAPIDIR=			      \
 		    install
@@ -131,7 +132,7 @@ usr-lib-static: $(OUTPUT) $(LIBBPF_OBJ)
 
 usr-lib-shared: $(OUTPUT) $(LIBBPF_OBJ)
 	$(call msg,USR-LIB-SHARED,$@)
-	$(CC) $(USR_LIB_CFLAGS) $(USR_LIB_INCLUDES) -shared $(USR_LIB_SRC) -o $(OUTPUT)/$(USR_LIB_NAME).so
+	$(CC) $(USR_LIB_CFLAGS) $(USR_LIB_INCLUDES) -shared $(USR_LIB_SRC) -o $(OUTPUT)/$(USR_LIB_NAME).so $(LIBBPF_OBJ_SHARED)
 
 test:
 	$(call msg,TEST,$@)

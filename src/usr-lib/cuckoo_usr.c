@@ -552,10 +552,10 @@ int cuckoo_delete(const cuckoo_hashmap_t *map, const void *key, size_t key_size,
     int ret_val = 0;
     unsigned int step;
     void *map_val;
-    
+
     /* Check if err is not NULL */
     if (err == NULL) {
-        return NULL;
+        return -1;
     }
 
     if (map == NULL) {
